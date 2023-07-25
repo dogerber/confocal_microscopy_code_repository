@@ -1,11 +1,10 @@
 # confocal_microscopy_code_repository
 Collection of MATLAB codes useful for locating and tracking particles in confocal microscopy images.
 
-# How to use
 
 
 # Code overview
-
+ <img src="images/code_overview.png" max-width: 100%>
 
 # Acknowledgement
 - Rob Style and Nicolas Bain partially wrote some of the codes given here and helped with the development of many.
