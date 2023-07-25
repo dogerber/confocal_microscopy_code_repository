@@ -5,7 +5,7 @@ Collection of MATLAB codes useful for locating and tracking particles in confoca
 
 # Code overview
 
-<img src="images/code_overview.png" height =300px>
+<img src="images/code_overview.png" width = 100%>
  
 
 # Acknowledgement
