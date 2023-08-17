@@ -1,10 +1,11 @@
-function res = displacements_to_principal_stretches(PATH_DISPLACEMENTS,param)
+function res = displacements_to_principal_strains(PATH_DISPLACEMENTS,param)
 %  res = displacements_to_principal_stretches(PATH_DISPLACEMENTS,param)
 % Converts from the displacements d().r format to principal stretches using the calcF
 % function
 %
 %
 % Branched from displacements_to_strains 10.11.2022 by DG
+% v1002 - added refractive index correction for samples imaged in PEGDA
 %
 %
 % see also: https://en.wikipedia.org/wiki/Finite_strain_theory
@@ -29,9 +30,11 @@ if isunix; param.do_waitbar = false; param.do_show = false;   end
 % strain calucaltion parameters
 if ~isfield(param,'neighbour_mode'); param.neighbour_mode = 'distance'; end% 'number' or 'distance'
 if ~isfield(param,'neighbour_param');param.neighbour_param = 10; end% number of neighbours to use, or neighbours within this distance to use
-if ~isfield(param,'target_state');param.target_state = 'undeformed'; end% for which state do you want to calculate the strains? 'deformed' or 'undeformed'
-if ~isfield(param,'use_backslash');param.use_backslash = false; end % use fast and sensitive backsash mthod
-param.code_version = 1001; %
+if ~isfield(param,'target_state');param.target_state = 'undeformed'; end% for which state do you want to calculate the strains? 
+% 'deformed' [Eulerian-Alamnsi finite strain tensor] or 'undeformed' [Green-Lagrange strain]
+if ~isfield(param,'use_backslash');param.use_backslash = true; end % use fast and sensitive backsash mthod
+if ~isfield(param,'refractive_index_correction');param.refractive_index_correction = false; end 
+param.code_version = 1002; %
 
 if ~isfield(param,'dimensions_to_use');  param.dimensions_to_use = 'xz'; end % reduce to 2d or keep 3d data
 % options: 'xyz', 'xy', 'xz'
@@ -55,14 +58,15 @@ else
     load(PATH_DISPLACEMENTS,'d'); % dispalcements structure e.g. from confocal_to_displacments.m
 end
 
-if false
-    warning('temporary real space correction for Nicos data is ON');
-    muperpx = 0.329131;
-    pause;
-    for tp=1:length(d)
-        d(tp).r = d(tp).r .*[muperpx,muperpx,1];
-        d(tp).dr = d(tp).dr .*[muperpx,muperpx,1];
-    end
+
+
+% correct for refractive index of pegda (new v1002 230808)
+if param.refractive_index_correction 
+if ~isfield(d,'n_corrected')
+    fprintf('displacements were not corrected for different refractive index of PEGDA. Doing this now...\n');
+    n = 1.333+0.1*(1.470-1.333); % PEGDA-700, 10 %v/v = 1.3467 (estimated from rule of mixture with pure PEGDA-700 having n=1.470)
+    d =  d_correct_for_index_of_refraction(d,n);
+end
 end
 
 
@@ -75,7 +79,6 @@ if false
         0.1 0.3/2 1.1] ;
     d(2).r = d(1).r(:,:) * Ef.*d(1).r(:,3)/max(d(1).r(:,3));
     d(2).dr = d(2).r-d(1).r;
-    
 end
 
 
@@ -155,6 +158,10 @@ switch param.dimensions_to_use
         res = local_calcF_for_principal_stretches(r_start(:,[2,3]),r_end(:,[2,3]),[Y_grid(:),Z_grid(:)],param);
         n_dim = 2;
 end
+
+% attach more infos
+res.d = d; 
+res.param = param;
 
 
 
@@ -498,7 +505,12 @@ for i=1:length(X_grid)
     end
     n = length(inds_n);
     
+    %D12 = sqrt(bsxfun(@plus,sum(X.*X,2),sum(X_grid.*X_grid,2)') - 2*X*X_grid');
+
+    
     if length(inds_n) > min_num_pts_for_deformation_tensor
+        
+       %  [~,inds_n]=mink(D12(:,i),n);
         
         dX=X(inds_n,:)-repmat(X_grid(i,:),n,1); % The matrix of distances from the gridpoint
         dx=x(inds_n,:)-repmat(X_grid(i,:),n,1);
@@ -535,7 +547,7 @@ for i=1:length(X_grid)
             
             % Derive all the tensor terms from A
             x0(i,1:n_dim)=A(1,:); % Translation terms
-            F = A(2:n_dim+1,:); % "Deformation gradient"
+            F = A(2:n_dim+1,:)'; % "Deformation gradient", transpose[!] new 230811
             
         else % more robust fitting with fitlm (slower)
             A = nan(n_dim+1,n_dim+1);
@@ -548,7 +560,7 @@ for i=1:length(X_grid)
                     
                     % Derive all the tensor terms from A
                     x0(i,1:n_dim)=A(1:n_dim,end); % Translation terms
-                    F = A(1:n_dim,1:n_dim); % "Deformation gradient"
+                    F = A(1:n_dim,1:n_dim); % "Deformation gradient" CHECK THIS IF YOU USE IT
                     
                     if false % debugging
                         figure; hold on
@@ -595,6 +607,7 @@ for i=1:length(X_grid)
         principal_stretches(i).vectors = nan(n_dim,n_dim);
         principal_stretches(i).values = nan(n_dim,n_dim);
     end
+
     
     % note down
     res.all_inds(i).inds_n = inds_n;
@@ -609,7 +622,8 @@ for i=1:length(X_grid)
     epsilon_yy(i) = strain_matrix(2,2);
     epsilon_xy(i) = strain_matrix(1,2);
     
-    epsilon_kk(i) = principal_stretches(i).values(1,1)*principal_stretches(i).values(2,2);
+    %epsilon_kk(i) = principal_stretches(i).values(1,1)*principal_stretches(i).values(2,2); % volumetric stretch from principals
+    epsilon_kk(i) = epsilon_xx(i)+epsilon_yy(i);
     
     if n_dim>2 % 3D
         epsilon_zz(i) = strain_matrix(3,3);
